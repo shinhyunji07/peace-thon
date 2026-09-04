@@ -1,60 +1,85 @@
-from flask import Flask, render_template, request, jsonify
-from flask_socketio import SocketIO, emit
+import streamlit as st
+from datetime import datetime
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret-key-auruda'
-socketio = SocketIO(app, cors_allowed_origins="*")
+# 페이지 기본 설정
+st.set_page_config(page_title="통일 톡톡 (Tongil Talk)", page_icon="🕊️", layout="centered")
 
-# 임시 메모리 데이터베이스 (게시글 저장)
-posts = [
-    {
-        'id': 1,
-        'region': '남',
-        'author': '익명(남)',
-        'content': '북한 친구들은 요즘 어떤 음악 자주 들어?',
-        'likes': 3
-    }
-]
+# 세션 상태(Session State) 초기화: 데이터 저장을 위함
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
+if "sns_posts" not in st.session_state:
+    st.session_state.sns_posts = []
 
-# 1. 메인 페이지
-@app.route('/')
-def index():
-    return render_template('index.html')
+# 사이드바 UI 설정
+st.sidebar.title("🕊️ 통일 톡톡")
+st.sidebar.markdown("남북 청년들의 자유로운 소통 공간")
 
-# 2. 게시판 API
-@app.route('/api/posts', methods=['GET'])
-def get_posts():
-    return jsonify(posts)
+user_role = st.sidebar.radio(
+    "어떤 프로필로 참여하시겠습니까?", 
+    ["🇰🇷 남한 청년", "🇰🇵 북한 청년"]
+)
 
-@app.route('/api/posts', methods=['POST'])
-def create_post():
-    data = request.json
-    region = data.get('region', '남')
-    content = data.get('content', '')
+avatar_emoji = "🇰🇷" if "남한" in user_role else "🇰🇵"
+
+st.sidebar.divider()
+menu = st.sidebar.radio("메뉴 이동", ["💬 실시간 소통 채팅창", "📝 일상 나눔 미니 SNS"])
+
+# 1. 실시간 채팅창 화면
+if menu == "💬 실시간 소통 채팅창":
+    st.title("💬 남북 청년 소통 채팅방")
+    st.info("서로를 존중하는 따뜻한 대화를 나누어 보세요.")
     
-    new_post = {
-        'id': len(posts) + 1,
-        'region': region,
-        'author': f"익명({'북' if region == '북' else '남'})",
-        'content': content,
-        'likes': 0
-    }
-    posts.insert(0, new_post)
-    return jsonify(new_post), 201
+    # 기존 메시지 출력
+    for msg in st.session_state.chat_messages:
+        with st.chat_message("user", avatar=msg["avatar"]):
+            st.markdown(f"**{msg['author']}**")
+            st.write(msg["content"])
+            
+    # 새 메시지 입력
+    if prompt := st.chat_input("메시지를 입력하세요..."):
+        st.session_state.chat_messages.append({
+            "avatar": avatar_emoji,
+            "author": user_role,
+            "content": prompt
+        })
+        st.rerun()
 
-# 3. 실시간 소켓 채팅
-@socketio.on('joinChat')
-def handle_join(data):
-    # data: {'nickname': '...', 'region': '남/북'}
-    nickname = data.get('nickname')
-    region = data.get('region')
-    region_label = '북측' if region == '북' else '남측'
-    emit('systemMessage', f"{nickname}({region_label}) 님이 입장하셨습니다.", broadcast=True)
-
-@socketio.on('chatMessage')
-def handle_message(data):
-    # data: {'nickname': '...', 'region': '남/북', 'text': '...'}
-    emit('message', data, broadcast=True)
-
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+# 2. 미니 SNS 게시판 화면
+elif menu == "📝 일상 나눔 미니 SNS":
+    st.title("📝 자유로운 일상 나눔")
+    st.write("오늘 하루는 어땠나요? 소소한 일상부터 궁금했던 점까지 자유롭게 올려주세요.")
+    
+    # 새 게시글 작성 폼
+    with st.expander("✨ 새로운 게시글 작성하기", expanded=True):
+        with st.form("new_post_form"):
+            post_title = st.text_input("제목을 적어주세요")
+            post_content = st.text_area("내용을 입력해주세요")
+            submitted = st.form_submit_button("게시글 올리기")
+            
+            if submitted:
+                if post_title.strip() and post_content.strip():
+                    # 최신 글이 위로 오도록 리스트 맨 앞에 추가
+                    st.session_state.sns_posts.insert(0, {
+                        "author": user_role,
+                        "avatar": avatar_emoji,
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "title": post_title,
+                        "content": post_content
+                    })
+                    st.success("게시글이 성공적으로 등록되었습니다!")
+                    st.rerun()
+                else:
+                    st.warning("제목과 내용을 모두 입력해주세요.")
+                    
+    st.divider()
+    
+    # 게시글 목록 출력
+    if not st.session_state.sns_posts:
+        st.info("아직 등록된 게시글이 없습니다. 첫 번째 글의 주인공이 되어보세요!")
+    else:
+        for idx, post in enumerate(st.session_state.sns_posts):
+            st.markdown(f"**{post['title']}**")
+            st.caption(f"{post['avatar']} {post['author']} | 🕒 {post['time']}")
+            st.write(post['content'])
+            # 댓글 기능이나 좋아요 버튼을 추가할 수 있는 자리입니다.
+            st.markdown("---")
